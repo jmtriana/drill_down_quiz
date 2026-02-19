@@ -10,6 +10,11 @@ export interface Question {
   segmentLabel: string;
 }
 
+export interface Player {
+  id: string;
+  name: string;
+}
+
 export interface PlayerAnswer {
   playerId: string;
   questionId: string;
@@ -35,6 +40,6 @@ export interface QuizData {
 }
 
 export interface SyncMessage {
-  type: 'VOTE' | 'STATE_CHANGE' | 'JOIN';
+  type: 'VOTE' | 'STATE_CHANGE' | 'JOIN' | 'PLAYER_LIST';
   payload: any;
 }

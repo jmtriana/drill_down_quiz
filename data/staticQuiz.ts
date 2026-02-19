@@ -40,9 +40,9 @@ export const COMPANY_CLIENT_QUIZ: QuizData = {
     {
       id: "q4",
       text: "De los clientes DVP Activos, ¿cuántos han alcanzado el estado de 'Principalidad'?",
-      options: ["58,400 Principal", "34,100 Sin Principalidad"],
+      options: ["58,400 Principal", "34,100 No Principal"],
       optionValues: [58400, 34100],
-      optionLabels: ["Principalidad", "Sin Principalidad"],
+      optionLabels: ["Principal", "No Principal"],
       correctIndex: 0,
       segmentLabel: "DVP Activos",
       explanation: "La principalidad es el KPI final de compromiso. Estos 58.4k clientes representan nuestro núcleo de mayor valor."

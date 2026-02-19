@@ -1,7 +1,8 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { GameStatus, PlayerAnswer, AppRole, SyncMessage } from './types';
+import { GameStatus, PlayerAnswer, AppRole, SyncMessage, Player } from './types';
 import { COMPANY_CLIENT_QUIZ } from './data/staticQuiz';
+import { analyzeResults } from './services/geminiService';
 import ResponseChart from './components/ResponseChart';
 import TreeChart from './components/TreeChart';
 import PlayerUI from './components/PlayerUI';
@@ -13,13 +14,18 @@ const App: React.FC = () => {
     return (r === 'PLAYER' ? 'PLAYER' : 'HOST') as AppRole;
   });
 
+  const [isSplitView, setIsSplitView] = useState(false);
   const [status, setStatus] = useState<GameStatus>(GameStatus.LOBBY);
   const quiz = COMPANY_CLIENT_QUIZ;
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState<PlayerAnswer[]>([]);
+  const [players, setPlayers] = useState<Player[]>([]);
   const [revealedQuestions, setRevealedQuestions] = useState<number[]>([]);
   const [timer, setTimer] = useState(30);
   const [hasVoted, setHasVoted] = useState(false);
+  const [lastSelectedOption, setLastSelectedOption] = useState<number | null>(null);
+  const [aiInsight, setAiInsight] = useState<string | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   
   const channelRef = useRef<BroadcastChannel | null>(null);
 
@@ -29,33 +35,33 @@ const App: React.FC = () => {
     channelRef.current.onmessage = (event: MessageEvent<SyncMessage>) => {
       const { type, payload } = event.data;
       
-      if (role === 'HOST') {
-        if (type === 'VOTE') {
-          setAnswers(prev => [...prev, payload]);
-        }
-      } else {
-        if (type === 'STATE_CHANGE') {
-          setStatus(payload.status);
-          setCurrentIndex(payload.currentIndex);
-          setRevealedQuestions(payload.revealedQuestions);
-          // If a new question starts, allow voting again
-          if (payload.status === GameStatus.QUESTION_ACTIVE) {
-             // Basic check: if current index changed, reset hasVoted
-             // In a real app we'd compare IDs
-          }
-        }
+      if (type === 'VOTE') {
+        setAnswers(prev => [...prev, payload]);
+      } else if (type === 'JOIN' && role === 'HOST') {
+        setPlayers(prev => {
+          if (prev.find(p => p.id === payload.id)) return prev;
+          const newList = [...prev, payload];
+          channelRef.current?.postMessage({ type: 'PLAYER_LIST', payload: newList });
+          return newList;
+        });
+      } else if (type === 'PLAYER_LIST' && role === 'PLAYER') {
+        setPlayers(payload);
+      } else if (type === 'STATE_CHANGE') {
+        setStatus(payload.status);
+        setCurrentIndex(payload.currentIndex);
+        setRevealedQuestions(payload.revealedQuestions);
       }
     };
 
     return () => channelRef.current?.close();
   }, [role]);
 
-  // Player reset logic when question changes
   useEffect(() => {
-    if (role === 'PLAYER') {
+    if (role === 'PLAYER' || isSplitView) {
       setHasVoted(false);
+      setLastSelectedOption(null);
     }
-  }, [currentIndex, role]);
+  }, [currentIndex, status === GameStatus.LOBBY, role, isSplitView]);
 
   useEffect(() => {
     if (role === 'HOST') {
@@ -66,29 +72,56 @@ const App: React.FC = () => {
     }
   }, [status, currentIndex, revealedQuestions, role]);
 
+  const fetchInsight = async () => {
+    setIsAnalyzing(true);
+    const insight = await analyzeResults(quiz.questions[currentIndex], answers);
+    setAiInsight(insight);
+    setIsAnalyzing(false);
+  };
+
   const startQuiz = () => {
     setStatus(GameStatus.QUESTION_ACTIVE);
     setCurrentIndex(0);
     setRevealedQuestions([]);
     setAnswers([]);
     setTimer(30);
+    setAiInsight(null);
   };
 
   const submitVote = (index: number) => {
-    if (hasVoted) return;
+    if (hasVoted || status !== GameStatus.QUESTION_ACTIVE) return;
+    
     const answer: PlayerAnswer = {
       playerId: 'player-' + Math.random().toString(36).substr(2, 5),
       questionId: quiz.questions[currentIndex].id,
       optionIndex: index,
       timestamp: Date.now()
     };
+    
     channelRef.current?.postMessage({ type: 'VOTE', payload: answer });
     setHasVoted(true);
+    setLastSelectedOption(index);
+    
+    if (isSplitView) {
+      setAnswers(prev => [...prev, answer]);
+    }
+
+    if ("vibrate" in navigator) {
+      navigator.vibrate(50);
+    }
+  };
+
+  const handlePlayerJoin = (name: string) => {
+    const newPlayer = { id: 'p-' + Math.random().toString(36).substr(2, 5), name };
+    channelRef.current?.postMessage({ type: 'JOIN', payload: newPlayer });
+    if (isSplitView) {
+      setPlayers(prev => [...prev, newPlayer]);
+    }
   };
 
   const simulateAnswers = useCallback(() => {
     const currentQ = quiz.questions[currentIndex];
-    const newAnswers: PlayerAnswer[] = Array.from({ length: 5 }).map((_, i) => ({
+    const newAnswers: PlayerAnswer[] = Array.from({ length: 8 }).map((_, i) => ({
       playerId: `bot-${i}-${Date.now()}`,
       questionId: currentQ.id,
       optionIndex: Math.floor(Math.random() * currentQ.options.length),
@@ -99,13 +132,13 @@ const App: React.FC = () => {
 
   useEffect(() => {
     let interval: any;
-    if (role === 'HOST' && status === GameStatus.QUESTION_ACTIVE && timer > 0) {
+    if (status === GameStatus.QUESTION_ACTIVE && timer > 0) {
       interval = setInterval(() => setTimer(t => t - 1), 1000);
     } else if (timer === 0 && status === GameStatus.QUESTION_ACTIVE) {
       setStatus(GameStatus.SHOWING_RESULTS);
     }
     return () => clearInterval(interval);
-  }, [status, timer, role]);
+  }, [status, timer]);
 
   const nextStep = () => {
     if (status === GameStatus.SHOWING_RESULTS) {
@@ -117,6 +150,7 @@ const App: React.FC = () => {
           setTimer(30);
           setAnswers([]);
           setStatus(GameStatus.QUESTION_ACTIVE);
+          setAiInsight(null);
         } else {
           setStatus(GameStatus.FINISHED);
         }
@@ -128,211 +162,245 @@ const App: React.FC = () => {
     setStatus(GameStatus.LOBBY);
     setCurrentIndex(0);
     setAnswers([]);
+    setPlayers([]);
     setRevealedQuestions([]);
+    setAiInsight(null);
   };
 
-  const openPlayerView = () => {
-    // Robust URL construction to avoid ERR_FILE_NOT_FOUND
-    const baseUrl = window.location.origin + window.location.pathname;
-    const url = new URL(baseUrl);
-    url.searchParams.set('role', 'player');
-    window.open(url.toString(), '_blank');
-  };
+  const renderHostUI = () => {
+    const currentQuestion = quiz.questions[currentIndex];
+    const isCorrectRevealed = status === GameStatus.SHOWING_RESULTS && revealedQuestions.includes(currentIndex);
 
-  const toggleRole = () => {
-    setRole(role === 'HOST' ? 'PLAYER' : 'HOST');
-  };
-
-  if (role === 'PLAYER') {
     return (
-      <div className="relative">
-        <PlayerUI 
-          status={status} 
-          currentQuestion={quiz.questions[currentIndex]} 
-          onVote={submitVote} 
-          hasVoted={hasVoted}
-          playerName="Participante"
-        />
-        {/* Toggle back for testing convenience */}
-        <button 
-          onClick={toggleRole}
-          className="fixed bottom-4 right-4 bg-black/20 text-[8px] text-white/50 px-2 py-1 rounded-full uppercase font-bold hover:bg-black/40 transition-all z-50"
-        >
-          Dev: Volver a Host
-        </button>
-      </div>
-    );
-  }
-
-  const currentQuestion = quiz.questions[currentIndex];
-  const isCorrectRevealed = status === GameStatus.SHOWING_RESULTS && revealedQuestions.includes(currentIndex);
-
-  return (
-    <div className="min-h-screen bg-[#fcfdff] text-slate-900 font-sans selection:bg-red-50 overflow-x-hidden">
-      <div className="max-w-[1440px] mx-auto px-8 py-10">
-        
-        {/* Header */}
-        <header className="flex justify-between items-center mb-12 pb-8 border-b border-slate-100">
-          <div className="flex items-center gap-5">
-            <div className="w-12 h-12 bg-black rounded-2xl flex items-center justify-center text-white shadow-xl shadow-slate-200">
-              <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-              </svg>
-            </div>
-            <div>
-              <h1 className="text-3xl font-black text-slate-900 tracking-tighter leading-none mb-1 uppercase">ESTRATÉGICA 2025</h1>
-              <p className="text-[10px] font-black text-[#c90c14] uppercase tracking-[0.4em]">Panel de Presentador</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="px-4 py-2 bg-slate-50 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest border border-slate-100">
-              ID SESIÓN: 882-911
-            </div>
-            <button 
-              onClick={openPlayerView}
-              className="px-4 py-2 bg-black text-white text-[10px] font-black hover:bg-slate-800 transition-all rounded-xl uppercase tracking-widest shadow-lg"
-            >
-              Abrir Vista Jugador
-            </button>
-            {status !== GameStatus.LOBBY && (
-              <button onClick={reset} className="text-slate-300 hover:text-[#c90c14] transition-colors">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+      <div className={`min-h-screen bg-[#fcfdff] text-slate-900 font-sans ${isSplitView ? 'border-r border-slate-200' : ''}`}>
+        <div className="max-w-[1600px] mx-auto px-10 py-12">
+          <header className="flex justify-between items-center mb-16 pb-10 border-b-2 border-slate-100">
+            <div className="flex items-center gap-6">
+              <div className="w-16 h-16 bg-black rounded-3xl flex items-center justify-center text-white shadow-2xl">
+                <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
                 </svg>
-              </button>
-            )}
-          </div>
-        </header>
-
-        {status === GameStatus.LOBBY && (
-          <main className="max-w-5xl mx-auto py-20 text-center animate-in fade-in duration-1000 slide-in-from-bottom-8">
-            <div className="mb-24">
-              <h2 className="text-7xl font-black text-slate-900 mb-8 tracking-tighter leading-[0.85]">
-                Conoce a tu <br/><span className="text-[#c90c14] italic">Audiencia Real.</span>
-              </h2>
-              <p className="text-2xl text-slate-400 font-semibold max-w-3xl mx-auto leading-relaxed tracking-tight">
-                Participa en vivo desde tu dispositivo móvil.
-              </p>
+              </div>
+              <div>
+                <h1 className="text-4xl font-black text-slate-900 tracking-tighter uppercase leading-none">ESTRATÉGICA 2025</h1>
+                <p className="text-xs font-black text-[#c90c14] uppercase tracking-[0.5em] mt-1">Sesión de Análisis en Vivo</p>
+              </div>
             </div>
-
-            <div className="bg-white p-12 rounded-[56px] shadow-2xl shadow-slate-100 border border-slate-50 max-w-xl mx-auto mb-20 flex flex-col items-center">
-               <div className="w-48 h-48 bg-black rounded-3xl mb-8 flex items-center justify-center p-4">
-                 <div className="w-full h-full bg-white rounded-xl flex items-center justify-center font-black text-black text-4xl">QR</div>
+            
+            <div className="flex items-center gap-6">
+               <div className="bg-slate-50 px-6 py-3 rounded-2xl flex items-center gap-4">
+                  <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+                  <span className="text-xs font-black text-slate-400 uppercase tracking-widest">{players.length} JUGADORES</span>
                </div>
-               <div className="text-3xl font-black text-slate-900 tracking-widest mb-2">882-911</div>
-               <p className="text-xs font-black text-slate-300 uppercase tracking-widest">Código de Acceso</p>
+               <button onClick={() => setIsSplitView(!isSplitView)} className="text-[10px] font-black text-slate-300 hover:text-black uppercase tracking-widest transition-colors">
+                 {isSplitView ? 'Cerrar Test' : 'Test Multijugador'}
+               </button>
             </div>
+          </header>
 
-            <div className="flex flex-col items-center gap-6">
-              <button 
-                onClick={startQuiz}
-                className="px-20 py-8 bg-[#c90c14] text-white rounded-[40px] font-black text-2xl hover:opacity-90 shadow-[0_20px_50px_rgba(201,12,20,0.2)] transition-all hover:-translate-y-2 active:scale-95 uppercase tracking-widest"
-              >
-                Iniciar Sesión
-              </button>
-              
-              <button 
-                onClick={toggleRole}
-                className="text-slate-300 hover:text-slate-500 text-[10px] font-bold uppercase tracking-[0.2em] transition-all"
-              >
-                O probar vista jugador aquí mismo
-              </button>
-            </div>
-          </main>
-        )}
+          {status === GameStatus.LOBBY && (
+            <main className="max-w-6xl mx-auto py-10 animate-in fade-in duration-1000">
+              <div className="text-center mb-20">
+                <h2 className="text-[120px] font-black text-slate-900 mb-8 tracking-tighter leading-none uppercase">
+                  Únete al <span className="text-[#c90c14]">Reto</span>
+                </h2>
+                
+                <div className="flex justify-center items-center gap-16 mt-16">
+                   <div className="bg-white p-10 rounded-[48px] shadow-3xl border border-slate-50 flex flex-col items-center">
+                      <div className="w-48 h-48 bg-black rounded-3xl mb-8 flex items-center justify-center text-white font-black text-xl">QR</div>
+                      <p className="text-[10px] font-black text-slate-300 uppercase tracking-[0.4em] mb-2">Acceso Directo</p>
+                      <p className="text-5xl font-black text-slate-900 tracking-widest">882-911</p>
+                   </div>
+                   
+                   <div className="flex flex-col gap-4">
+                      <div className="bg-black p-8 rounded-[40px] text-white min-w-[300px] text-center">
+                         <p className="text-[10px] font-black text-white/40 uppercase tracking-widest mb-2">Conectados</p>
+                         <p className="text-7xl font-black tabular-nums">{players.length}</p>
+                      </div>
+                      <button 
+                        onClick={startQuiz}
+                        disabled={players.length === 0 && !isSplitView}
+                        className="w-full py-8 bg-[#c90c14] text-white rounded-[40px] font-black text-2xl hover:opacity-90 shadow-2xl transition-all hover:-translate-y-2 uppercase tracking-widest disabled:grayscale disabled:opacity-30"
+                      >
+                        Iniciar
+                      </button>
+                   </div>
+                </div>
+              </div>
 
-        {(status === GameStatus.QUESTION_ACTIVE || status === GameStatus.SHOWING_RESULTS) && currentQuestion && (
-          <div className="space-y-12">
-            <div className="animate-in slide-in-from-top-12 duration-1000">
+              <div className="bg-white/50 backdrop-blur-sm rounded-[64px] border border-slate-100 p-16 min-h-[400px]">
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-8">
+                  {players.map((p, i) => (
+                    <div key={p.id} className="bg-white p-8 rounded-3xl text-center shadow-lg shadow-slate-200/50 border border-slate-50 animate-in zoom-in duration-300" style={{ animationDelay: `${i * 30}ms` }}>
+                      <div className="w-14 h-14 bg-[#c90c14] text-white rounded-2xl flex items-center justify-center font-black text-lg mx-auto mb-4 shadow-lg shadow-red-100">
+                        {p.name.charAt(0)}
+                      </div>
+                      <p className="font-black text-slate-800 tracking-tighter text-lg truncate uppercase">{p.name}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </main>
+          )}
+
+          {(status === GameStatus.QUESTION_ACTIVE || status === GameStatus.SHOWING_RESULTS) && currentQuestion && (
+            <div className="space-y-16">
               <TreeChart quiz={quiz} revealedQuestions={revealedQuestions} />
-            </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
-              <div className="lg:col-span-8 bg-white rounded-[56px] shadow-2xl shadow-slate-100 p-14 border border-slate-50 relative">
-                <div className="flex justify-between items-center mb-12">
-                   <span className="px-5 py-2.5 bg-black text-white rounded-2xl text-[10px] font-black uppercase tracking-[0.3em]">
-                      NIVEL {currentIndex + 1}
-                    </span>
-                  {status === GameStatus.QUESTION_ACTIVE && (
-                    <div className="text-4xl font-black text-[#c90c14] tabular-nums animate-pulse">
-                      {timer}s
+              <div className={`grid grid-cols-1 ${isSplitView ? 'lg:grid-cols-1' : 'lg:grid-cols-12'} gap-12`}>
+                <div className={`${isSplitView ? 'lg:col-span-1' : 'lg:col-span-8'} bg-white rounded-[64px] shadow-3xl p-20 border border-slate-50 relative overflow-hidden`}>
+                  <div className="flex justify-between items-center mb-16">
+                     <div className="flex items-center gap-4">
+                        <span className="px-6 py-3 bg-black text-white rounded-2xl text-xs font-black uppercase tracking-[0.4em]">PREGUNTA {currentIndex + 1}</span>
+                        <span className="text-xs font-black text-slate-300 uppercase tracking-widest">{currentQuestion.segmentLabel}</span>
+                     </div>
+                    {status === GameStatus.QUESTION_ACTIVE && (
+                      <div className="text-6xl font-black text-[#c90c14] tabular-nums tracking-tighter">
+                        {timer}s
+                      </div>
+                    )}
+                  </div>
+
+                  <h2 className="text-5xl lg:text-7xl font-black text-slate-900 mb-20 tracking-tighter leading-[0.95] max-w-4xl">
+                    {currentQuestion.text}
+                  </h2>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-10 mb-20">
+                    {currentQuestion.options.map((option, idx) => {
+                      let style = "p-12 rounded-[56px] border-[6px] transition-all flex flex-col items-start justify-center font-black group relative h-full min-h-[220px]";
+                      if (isCorrectRevealed) {
+                        style += idx === currentQuestion.correctIndex ? " border-[#c90c14] bg-red-50 text-[#c90c14] scale-105" : " opacity-20 grayscale border-slate-100";
+                      } else {
+                        style += " border-slate-50 bg-slate-50/50 hover:bg-slate-100/50";
+                      }
+                      return (
+                        <div key={idx} className={style}>
+                          <div className={`w-14 h-14 rounded-2xl mb-8 flex items-center justify-center text-lg font-black ${
+                            isCorrectRevealed && idx === currentQuestion.correctIndex ? 'bg-[#c90c14] text-white' : 'bg-white text-slate-300'
+                          }`}>
+                            {String.fromCharCode(65 + idx)}
+                          </div>
+                          <span className="text-3xl tracking-tighter leading-none">{option}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {isCorrectRevealed && (
+                    <div className="p-14 bg-black rounded-[56px] text-white animate-in slide-in-from-bottom-12 border-l-[16px] border-[#c90c14] shadow-2xl">
+                      <div className="text-[10px] font-black text-white/40 uppercase tracking-[0.4em] mb-4">Contexto de Valor</div>
+                      <p className="text-3xl text-slate-200 leading-snug font-medium italic">"{currentQuestion.explanation}"</p>
                     </div>
                   )}
                 </div>
 
-                <h2 className="text-5xl font-black text-slate-900 mb-16 tracking-tighter leading-[1.05]">
-                  {currentQuestion.text}
-                </h2>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-16">
-                  {currentQuestion.options.map((option, idx) => {
-                    let style = "p-10 rounded-[48px] border-4 transition-all flex flex-col items-center justify-center text-center font-black group relative h-full min-h-[220px]";
-                    if (isCorrectRevealed) {
-                      style += idx === currentQuestion.correctIndex ? " border-[#c90c14] bg-red-50 text-[#c90c14] scale-105" : " opacity-20 grayscale";
-                    } else {
-                      style += " border-slate-50 bg-slate-50/50";
-                    }
-                    return (
-                      <div key={idx} className={style}>
-                        <div className={`w-14 h-14 rounded-3xl mx-auto mb-6 flex items-center justify-center text-xs font-black ${
-                          isCorrectRevealed && idx === currentQuestion.correctIndex ? 'bg-[#c90c14] text-white' : 'bg-white text-slate-300'
-                        }`}>
-                          {String.fromCharCode(65 + idx)}
-                        </div>
-                        <span className="text-3xl tracking-tighter">{option}</span>
+                <div className={`${isSplitView ? 'lg:col-span-1' : 'lg:col-span-4'} space-y-12`}>
+                  <div className="bg-white rounded-[64px] p-16 border border-slate-50 shadow-2xl relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-slate-50 rounded-bl-full -z-10"></div>
+                    <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.4em] mb-12 text-center">Pulso en Tiempo Real</h3>
+                    <ResponseChart question={currentQuestion} answers={answers} showCorrect={isCorrectRevealed} />
+                    <div className="mt-12 flex flex-col items-center gap-6">
+                      <div className="text-center">
+                        <p className="text-4xl font-black text-slate-900">{answers.length}</p>
+                        <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Votos Registrados</p>
                       </div>
-                    );
-                  })}
-                </div>
-
-                {isCorrectRevealed && (
-                  <div className="p-12 bg-black rounded-[56px] text-white animate-in slide-in-from-bottom-8 border-l-[12px] border-[#c90c14]">
-                    <p className="text-2xl text-slate-200 leading-snug font-medium italic">"{currentQuestion.explanation}"</p>
+                      <button onClick={simulateAnswers} className="text-[10px] font-black text-slate-200 bg-slate-50 px-8 py-4 rounded-2xl uppercase tracking-[0.3em] hover:text-black transition-colors">
+                        Simular Audiencia
+                      </button>
+                    </div>
                   </div>
-                )}
-              </div>
 
-              <div className="lg:col-span-4 space-y-10">
-                <div className="bg-white rounded-[56px] p-12 border border-slate-50 shadow-xl shadow-slate-50">
-                  <h3 className="text-xs font-black text-slate-300 uppercase tracking-widest mb-10">Pulso de la Sala</h3>
-                  <ResponseChart question={currentQuestion} answers={answers} showCorrect={isCorrectRevealed} />
-                  <div className="mt-8 flex justify-center">
-                    <button onClick={simulateAnswers} className="text-[10px] font-black text-slate-300 bg-slate-50 px-6 py-3 rounded-2xl uppercase tracking-widest hover:text-black transition-colors">
-                      Simular +5 votos
-                    </button>
-                  </div>
-                </div>
-
-                <div className="bg-black rounded-[56px] p-12 text-white shadow-2xl">
-                  <div className="space-y-6">
+                  <div className="bg-black rounded-[64px] p-12 text-white shadow-3xl">
                     {status === GameStatus.QUESTION_ACTIVE ? (
-                      <button onClick={() => setTimer(0)} className="w-full py-8 bg-white/10 text-white border border-white/20 rounded-[32px] font-black text-xl hover:bg-white/20 transition-all uppercase tracking-widest">
-                        Cerrar Votación
+                      <button onClick={() => setTimer(0)} className="w-full py-10 bg-white/10 text-white border-2 border-white/20 rounded-[40px] font-black text-2xl hover:bg-white/20 transition-all uppercase tracking-widest">
+                        Cerrar Votos
                       </button>
                     ) : (
-                      <button onClick={nextStep} className="w-full py-8 bg-[#c90c14] text-white rounded-[32px] font-black text-xl hover:opacity-90 transition-all flex items-center justify-center gap-4 group uppercase tracking-widest">
-                        {!revealedQuestions.includes(currentIndex) ? "Revelar Rama" : "Siguiente Nivel"}
-                      </button>
+                      <div className="space-y-6">
+                        {!aiInsight && (
+                          <button 
+                            onClick={fetchInsight}
+                            disabled={isAnalyzing}
+                            className="w-full py-6 bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 rounded-[32px] font-black text-sm hover:bg-emerald-600/30 transition-all uppercase tracking-[0.3em] flex items-center justify-center gap-4"
+                          >
+                            {isAnalyzing ? "Analizando..." : "Obtener Insight IA"}
+                          </button>
+                        )}
+                        
+                        {aiInsight && (
+                          <div className="p-8 bg-emerald-600/10 border border-emerald-500/20 rounded-[40px] mb-8 animate-in zoom-in">
+                            <p className="text-emerald-400 font-bold text-lg leading-snug italic">"{aiInsight}"</p>
+                          </div>
+                        )}
+
+                        <button onClick={nextStep} className="w-full py-10 bg-[#c90c14] text-white rounded-[40px] font-black text-2xl hover:opacity-90 transition-all flex items-center justify-center gap-6 group uppercase tracking-widest">
+                          {!revealedQuestions.includes(currentIndex) ? "Revelar" : "Continuar"}
+                          <svg className="w-8 h-8 group-hover:translate-x-2 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                          </svg>
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {status === GameStatus.FINISHED && (
-          <main className="bg-white rounded-[80px] shadow-2xl p-24 text-center max-w-6xl mx-auto border border-slate-50">
-            <h2 className="text-7xl font-black mb-8 text-slate-900 tracking-tighter uppercase">Estructura Completada</h2>
-            <div className="mb-24 scale-105">
-              <TreeChart quiz={quiz} revealedQuestions={quiz.questions.map((_, i) => i)} />
-            </div>
-            <button onClick={reset} className="px-24 py-10 bg-black text-white rounded-[48px] font-black text-2xl uppercase tracking-[0.3em] hover:bg-slate-900 transition-all">
-              Reiniciar Ciclo
-            </button>
-          </main>
-        )}
+          {status === GameStatus.FINISHED && (
+            <main className="bg-white rounded-[100px] shadow-4xl p-24 text-center max-w-7xl mx-auto border border-slate-50">
+              <div className="w-24 h-24 bg-[#c90c14] rounded-full mx-auto mb-12 flex items-center justify-center text-white">
+                <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <h2 className="text-[120px] font-black mb-12 text-slate-900 tracking-tighter uppercase leading-none">Visión<br/><span className="text-[#c90c14]">Completada</span></h2>
+              <div className="mb-24 scale-110 py-20 overflow-hidden">
+                <TreeChart quiz={quiz} revealedQuestions={quiz.questions.map((_, i) => i)} />
+              </div>
+              <button onClick={reset} className="px-32 py-12 bg-black text-white rounded-[64px] font-black text-3xl uppercase tracking-[0.4em] hover:bg-slate-900 transition-all shadow-2xl">
+                REINICIAR EVENTO
+              </button>
+            </main>
+          )}
+        </div>
       </div>
+    );
+  };
+
+  if (role === 'PLAYER') {
+    return (
+      <PlayerUI 
+        status={status} 
+        currentQuestion={quiz.questions[currentIndex]} 
+        onVote={submitVote} 
+        onJoin={handlePlayerJoin}
+        hasVoted={hasVoted}
+        lastSelectedOption={lastSelectedOption}
+      />
+    );
+  }
+
+  return (
+    <div className={`flex ${isSplitView ? 'flex-row' : 'flex-col'} min-h-screen`}>
+      <div className={isSplitView ? 'w-2/3' : 'w-full'}>
+        {renderHostUI()}
+      </div>
+      {isSplitView && (
+        <div className="w-1/3 bg-slate-900 border-l-8 border-black relative overflow-y-auto">
+          <div className="absolute top-6 left-6 bg-[#c90c14] text-white px-5 py-2 rounded-full text-[10px] font-black uppercase tracking-[0.3em] z-50 shadow-xl">
+            Simulador de Participante
+          </div>
+          <PlayerUI 
+            status={status} 
+            currentQuestion={quiz.questions[currentIndex]} 
+            onVote={submitVote} 
+            onJoin={handlePlayerJoin}
+            hasVoted={hasVoted}
+            lastSelectedOption={lastSelectedOption}
+          />
+        </div>
+      )}
     </div>
   );
 };
