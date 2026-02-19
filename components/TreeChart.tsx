@@ -201,17 +201,17 @@ const TreeChart: React.FC<TreeChartProps> = ({ quiz, revealedQuestions }) => {
     <div className="w-full bg-white rounded-[48px] border border-slate-100 shadow-2xl shadow-indigo-100/10 overflow-hidden">
       <div className="p-8 bg-slate-50/50 border-b border-slate-50 flex justify-between items-center">
         <div>
-          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em] mb-1">Estructura Jerárquica de Cartera</h3>
-          <p className="text-[9px] font-bold text-indigo-400 uppercase tracking-widest">Vista Vertical de Drill-Down</p>
+          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.4em] mb-1">Distribución de nuestros clientes</h3>
+          <p className="text-[9px] font-bold text-indigo-400 uppercase tracking-widest">Vista Vertical Drill-Down</p>
         </div>
         <div className="flex gap-6">
           <div className="flex items-center gap-2">
             <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 shadow-lg shadow-indigo-200"></div>
-            <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Ruta de Análisis</span>
+            <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Ruta del cuestionario</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-2.5 h-2.5 rounded-full bg-slate-200 border border-slate-300"></div>
-            <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest">Segmentos Complemento</span>
+            <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest">Complementos</span>
           </div>
         </div>
       </div>

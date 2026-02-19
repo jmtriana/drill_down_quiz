@@ -10,7 +10,7 @@ export const COMPANY_CLIENT_QUIZ: QuizData = {
     {
       id: "q1",
       text: "¿Cuál es la distribución de nuestra base entre los mundos de 'Personas' y 'Empresariales'?",
-      options: ["980,000 Personas", "270,000 Empresariales"],
+      options: ["980,000 Personas", "270,000 Empresariales","1000 usuarios","2"],
       optionValues: [980000, 270000],
       optionLabels: ["Personas", "Empresariales"],
       correctIndex: 0,
