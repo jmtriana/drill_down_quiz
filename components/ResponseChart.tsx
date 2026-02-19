@@ -11,7 +11,8 @@ interface ResponseChartProps {
 
 const ResponseChart: React.FC<ResponseChartProps> = ({ question, answers, showCorrect }) => {
   const data = question.options.map((option, index) => ({
-    name: option,
+    name: String.fromCharCode(65 + index),
+    fullName: option,
     count: answers.filter(a => a.optionIndex === index).length,
     isCorrect: index === question.correctIndex,
   }));
@@ -19,28 +20,29 @@ const ResponseChart: React.FC<ResponseChartProps> = ({ question, answers, showCo
   return (
     <div className="w-full h-64 mt-6">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data}>
+        <BarChart data={data} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
           <XAxis 
             dataKey="name" 
             axisLine={false} 
             tickLine={false} 
-            tick={{ fill: '#64748b', fontSize: 12 }}
+            tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 900 }}
           />
           <YAxis 
             axisLine={false} 
             tickLine={false} 
-            tick={{ fill: '#64748b', fontSize: 12 }}
+            tick={{ fill: '#94a3b8', fontSize: 10 }}
           />
           <Tooltip 
-            cursor={{ fill: 'transparent' }}
-            contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+            cursor={{ fill: '#f8fafc' }}
+            contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontSize: '12px', fontWeight: 'bold' }}
+            labelStyle={{ display: 'none' }}
           />
-          <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+          <Bar dataKey="count" radius={[8, 8, 0, 0]} barSize={40}>
             {data.map((entry, index) => (
               <Cell 
                 key={`cell-${index}`} 
-                fill={showCorrect ? (entry.isCorrect ? '#22c55e' : '#f43f5e') : '#6366f1'} 
+                fill={showCorrect ? (entry.isCorrect ? '#10b981' : '#cbd5e1') : (index === 0 ? '#c90c14' : '#000')} 
               />
             ))}
           </Bar>
