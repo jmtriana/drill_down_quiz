@@ -1,5 +1,5 @@
 {
-  "name": "Copy of Client Insights Knowledge Tree",
+  "name": "Clients Tree",
   "description": "An interactive drill-down quiz for company teams to explore client segmentation. Features a binary decision tree visualization that reveals the complement of each segment as you progress.",
   "requestFramePermissions": [
     "camera",
