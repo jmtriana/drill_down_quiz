@@ -9,11 +9,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "recharts": "^3.7.0",
     "@google/genai": "^1.42.0",
+    "firebase": "^11.0.0",
+    "d3": "^7.9.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "d3": "^7.9.0"
+    "recharts": "^3.7.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

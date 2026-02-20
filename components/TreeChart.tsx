@@ -9,11 +9,11 @@ interface TreeChartProps {
   revealedQuestions: number[];
 }
 
-const TreeChart: React.FC<TreeChartProps> = ({ quiz, revealedQuestions }) => {
+const TreeChart: React.FC<TreeChartProps> = ({ quiz, revealedQuestions = [] }) => {
   const svgRef = useRef<SVGSVGElement>(null);
 
   useEffect(() => {
-    if (!svgRef.current || !quiz) return;
+    if (!svgRef.current || !quiz || !revealedQuestions) return;
 
     const width = 1600;
     const height = 900; // Un poco más de altura para acomodar las 2 líneas cómodamente
@@ -27,12 +27,12 @@ const TreeChart: React.FC<TreeChartProps> = ({ quiz, revealedQuestions }) => {
       .append("g")
       .attr("transform", `translate(${margin.left},${margin.top})`);
 
-    const isQ1Done = revealedQuestions.includes(0);
-    const isQ2Done = revealedQuestions.includes(1);
-    const isQ3Done = revealedQuestions.includes(2);
-    const isQ4Done = revealedQuestions.includes(3);
-    const isQ5Done = revealedQuestions.includes(4);
-    const isQ6Done = revealedQuestions.includes(5);
+    const isQ1Done = (revealedQuestions || []).includes(0);
+    const isQ2Done = (revealedQuestions || []).includes(1);
+    const isQ3Done = (revealedQuestions || []).includes(2);
+    const isQ4Done = (revealedQuestions || []).includes(3);
+    const isQ5Done = (revealedQuestions || []).includes(4);
+    const isQ6Done = (revealedQuestions || []).includes(5);
 
     const checkIsPositive = (name: string) => {
       const negatives = ["Inactivo", "Inactivos", "No Principal", "No Activos", "No Principal"];
