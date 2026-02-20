@@ -173,8 +173,8 @@ const App: React.FC = () => {
 
     return (
       <div className={`min-h-screen bg-[#fcfdff] text-slate-900 font-sans ${isSplitView ? 'border-r border-slate-200' : ''}`}>
-        <div className="max-w-[1600px] mx-auto px-10 py-12">
-          <header className="flex justify-between items-center mb-16 pb-10 border-b-2 border-slate-100">
+        <div className="max-w-[1700px] mx-auto px-6 lg:px-12 py-10">
+          <header className="flex justify-between items-center mb-12 pb-8 border-b-2 border-slate-100">
             <div className="flex items-center gap-6">
               <div className="w-16 h-16 bg-black rounded-3xl flex items-center justify-center text-white shadow-2xl">
                 <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -244,11 +244,11 @@ const App: React.FC = () => {
           )}
 
           {(status === GameStatus.QUESTION_ACTIVE || status === GameStatus.SHOWING_RESULTS) && currentQuestion && (
-            <div className="space-y-16">
+            <div className="space-y-10">
               <TreeChart quiz={quiz} revealedQuestions={revealedQuestions} />
 
-              <div className={`grid grid-cols-1 ${isSplitView ? 'lg:grid-cols-1' : 'lg:grid-cols-12'} gap-12`}>
-                <div className={`${isSplitView ? 'lg:col-span-1' : 'lg:col-span-8'} bg-white rounded-[64px] shadow-3xl p-20 border border-slate-50 relative overflow-hidden`}>
+              <div className={`grid grid-cols-1 ${isSplitView ? 'lg:grid-cols-1' : 'lg:grid-cols-12'} gap-10`}>
+                <div className={`${isSplitView ? 'lg:col-span-1' : 'lg:col-span-8'} bg-white rounded-[64px] shadow-3xl p-16 lg:p-20 border border-slate-50 relative overflow-hidden`}>
                   <div className="flex justify-between items-center mb-16">
                      <div className="flex items-center gap-4">
                         <span className="px-6 py-3 bg-black text-white rounded-2xl text-xs font-black uppercase tracking-[0.4em]">PREGUNTA {currentIndex + 1}</span>
@@ -261,13 +261,13 @@ const App: React.FC = () => {
                     )}
                   </div>
 
-                  <h2 className="text-5xl lg:text-7xl font-black text-slate-900 mb-20 tracking-tighter leading-[0.95] max-w-4xl">
+                  <h2 className="text-5xl lg:text-7xl font-black text-slate-900 mb-16 tracking-tighter leading-[0.95] max-w-4xl">
                     {currentQuestion.text}
                   </h2>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-10 mb-20">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-16">
                     {currentQuestion.options.map((option, idx) => {
-                      let style = "p-12 rounded-[56px] border-[6px] transition-all flex flex-col items-start justify-center font-black group relative h-full min-h-[220px]";
+                      let style = "p-10 rounded-[56px] border-[6px] transition-all flex flex-col items-start justify-center font-black group relative h-full min-h-[180px]";
                       if (isCorrectRevealed) {
                         style += idx === currentQuestion.correctIndex ? " border-[#c90c14] bg-red-50 text-[#c90c14] scale-105" : " opacity-20 grayscale border-slate-100";
                       } else {
@@ -275,7 +275,7 @@ const App: React.FC = () => {
                       }
                       return (
                         <div key={idx} className={style}>
-                          <div className={`w-14 h-14 rounded-2xl mb-8 flex items-center justify-center text-lg font-black ${
+                          <div className={`w-14 h-14 rounded-2xl mb-6 flex items-center justify-center text-lg font-black ${
                             isCorrectRevealed && idx === currentQuestion.correctIndex ? 'bg-[#c90c14] text-white' : 'bg-white text-slate-300'
                           }`}>
                             {String.fromCharCode(65 + idx)}
@@ -287,19 +287,19 @@ const App: React.FC = () => {
                   </div>
 
                   {isCorrectRevealed && (
-                    <div className="p-14 bg-black rounded-[56px] text-white animate-in slide-in-from-bottom-12 border-l-[16px] border-[#c90c14] shadow-2xl">
+                    <div className="p-12 bg-black rounded-[56px] text-white animate-in slide-in-from-bottom-12 border-l-[16px] border-[#c90c14] shadow-2xl">
                       <div className="text-[10px] font-black text-white/40 uppercase tracking-[0.4em] mb-4">Contexto de Valor</div>
                       <p className="text-3xl text-slate-200 leading-snug font-medium italic">"{currentQuestion.explanation}"</p>
                     </div>
                   )}
                 </div>
 
-                <div className={`${isSplitView ? 'lg:col-span-1' : 'lg:col-span-4'} space-y-12`}>
-                  <div className="bg-white rounded-[64px] p-16 border border-slate-50 shadow-2xl relative overflow-hidden">
+                <div className={`${isSplitView ? 'lg:col-span-1' : 'lg:col-span-4'} space-y-10`}>
+                  <div className="bg-white rounded-[64px] p-12 border border-slate-50 shadow-2xl relative overflow-hidden">
                     <div className="absolute top-0 right-0 w-32 h-32 bg-slate-50 rounded-bl-full -z-10"></div>
-                    <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.4em] mb-12 text-center">Pulso en Tiempo Real</h3>
+                    <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.4em] mb-10 text-center">Pulso en Tiempo Real</h3>
                     <ResponseChart question={currentQuestion} answers={answers} showCorrect={isCorrectRevealed} />
-                    <div className="mt-12 flex flex-col items-center gap-6">
+                    <div className="mt-10 flex flex-col items-center gap-6">
                       <div className="text-center">
                         <p className="text-4xl font-black text-slate-900">{answers.length}</p>
                         <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Votos Registrados</p>
@@ -310,7 +310,7 @@ const App: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="bg-black rounded-[64px] p-12 text-white shadow-3xl">
+                  <div className="bg-black rounded-[64px] p-10 text-white shadow-3xl">
                     {status === GameStatus.QUESTION_ACTIVE ? (
                       <button onClick={() => setTimer(0)} className="w-full py-10 bg-white/10 text-white border-2 border-white/20 rounded-[40px] font-black text-2xl hover:bg-white/20 transition-all uppercase tracking-widest">
                         Cerrar Votos
@@ -348,14 +348,14 @@ const App: React.FC = () => {
           )}
 
           {status === GameStatus.FINISHED && (
-            <main className="bg-white rounded-[100px] shadow-4xl p-24 text-center max-w-7xl mx-auto border border-slate-50">
+            <main className="bg-white rounded-[100px] shadow-4xl p-24 text-center max-w-[1700px] mx-auto border border-slate-50">
               <div className="w-24 h-24 bg-[#c90c14] rounded-full mx-auto mb-12 flex items-center justify-center text-white">
                 <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7" />
                 </svg>
               </div>
               <h2 className="text-[120px] font-black mb-12 text-slate-900 tracking-tighter uppercase leading-none">Visión<br/><span className="text-[#c90c14]">Completada</span></h2>
-              <div className="mb-24 scale-110 py-20 overflow-hidden">
+              <div className="mb-24 py-10">
                 <TreeChart quiz={quiz} revealedQuestions={quiz.questions.map((_, i) => i)} />
               </div>
               <button onClick={reset} className="px-32 py-12 bg-black text-white rounded-[64px] font-black text-3xl uppercase tracking-[0.4em] hover:bg-slate-900 transition-all shadow-2xl">

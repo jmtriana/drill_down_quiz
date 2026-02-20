@@ -4,6 +4,7 @@ export interface Question {
   text: string;
   options: string[];
   optionValues: number[];
+  optionMonetaryValues?: number[]; // Nuevo campo para valores monetarios
   optionLabels: string[];
   correctIndex: number;
   explanation: string;
@@ -34,6 +35,7 @@ export type AppRole = 'HOST' | 'PLAYER';
 export interface QuizData {
   title: string;
   initialTotal: number;
+  initialMonetaryTotal?: number; // Total monetario inicial
   initialLabel: string;
   description: string;
   questions: Question[];
