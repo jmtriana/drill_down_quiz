@@ -3,6 +3,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { GameStatus, PlayerAnswer, AppRole, SyncMessage, Player } from './types';
 import { COMPANY_CLIENT_QUIZ } from './data/staticQuiz';
 import { analyzeResults } from './services/geminiService';
+import * as firebaseService from './services/firebaseService';
 import ResponseChart from './components/ResponseChart';
 import TreeChart from './components/TreeChart';
 import PlayerUI from './components/PlayerUI';
@@ -17,6 +18,7 @@ const App: React.FC = () => {
   const [isSplitView, setIsSplitView] = useState(false);
   const [status, setStatus] = useState<GameStatus>(GameStatus.LOBBY);
   const quiz = COMPANY_CLIENT_QUIZ;
+  const sessionId = new URLSearchParams(window.location.search).get('session') || 'demo-session';
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState<PlayerAnswer[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
@@ -26,12 +28,61 @@ const App: React.FC = () => {
   const [lastSelectedOption, setLastSelectedOption] = useState<number | null>(null);
   const [aiInsight, setAiInsight] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [firebaseError, setFirebaseError] = useState<string | null>(null);
   
   const channelRef = useRef<BroadcastChannel | null>(null);
 
   useEffect(() => {
     channelRef.current = new BroadcastChannel('quiz_sync');
     
+    // initialize firebase and subscribe to session updates
+    try {
+      firebaseService.initFirebase();
+      const unsubscribe = firebaseService.subscribeSession(sessionId, (data) => {
+        if (!data) return;
+        if (data.players) {
+          const p = Object.values(data.players as Record<string, any>);
+          setPlayers(p as Player[]);
+        }
+
+        const gs = data.gamestate;
+        if (gs) {
+          setStatus(gs.status);
+          setCurrentIndex(gs.currentIndex ?? 0);
+          setRevealedQuestions(gs.revealedQuestions || []);
+        }
+
+        // update answers for the active question if available
+        const activeIndex = gs?.currentIndex ?? currentIndex;
+        const q = quiz.questions[activeIndex];
+        if (data.questions && q) {
+          const qNode = data.questions[q.id];
+          if (qNode && qNode.answers) {
+            const answersArr = Object.values(qNode.answers as Record<string, any>);
+            setAnswers(answersArr as any);
+          }
+        }
+      }, (err) => {
+        // handle permission errors
+        try {
+          const code = (err && (err.code || err.message)) || String(err);
+          if (/permission_denied/i.test(code)) {
+            setFirebaseError('Firebase RTDB: permission denied. Update your DB rules or enable anonymous auth.');
+          } else {
+            setFirebaseError(String(code));
+          }
+        } catch (e) {
+          setFirebaseError('Firebase subscribe error');
+        }
+      });
+
+      // cleanup will call unsubscribe below
+      // store unsubscribe on ref so cleanup can access it
+      (channelRef as any).unsubscribeFirebase = unsubscribe;
+    } catch (e) {
+      console.warn('Firebase not available', e);
+    }
+
     channelRef.current.onmessage = (event: MessageEvent<SyncMessage>) => {
       const { type, payload } = event.data;
       
@@ -53,7 +104,15 @@ const App: React.FC = () => {
       }
     };
 
-    return () => channelRef.current?.close();
+    return () => {
+      channelRef.current?.close();
+      try {
+        const u = (channelRef as any).unsubscribeFirebase;
+        if (typeof u === 'function') u();
+      } catch (e) {
+        /* ignore */
+      }
+    };
   }, [role]);
 
   useEffect(() => {
@@ -69,6 +128,11 @@ const App: React.FC = () => {
         type: 'STATE_CHANGE',
         payload: { status, currentIndex, revealedQuestions }
       });
+      try {
+        firebaseService.updateGameState(sessionId, { status, currentIndex, revealedQuestions });
+      } catch (e) {
+        // ignore if firebase not configured
+      }
     }
   }, [status, currentIndex, revealedQuestions, role]);
 
@@ -86,6 +150,12 @@ const App: React.FC = () => {
     setAnswers([]);
     setTimer(30);
     setAiInsight(null);
+    try {
+      firebaseService.setQuestions(sessionId, quiz.questions);
+      firebaseService.updateGameState(sessionId, { status: GameStatus.QUESTION_ACTIVE, currentIndex: 0, revealedQuestions: [] });
+    } catch (e) {
+      // ignore
+    }
   };
 
   const submitVote = (index: number) => {
@@ -106,6 +176,13 @@ const App: React.FC = () => {
       setAnswers(prev => [...prev, answer]);
     }
 
+    // write vote to RTDB if available
+    try {
+      firebaseService.pushAnswer(sessionId, answer);
+    } catch (e) {
+      // ignore if firebase not configured
+    }
+
     if ("vibrate" in navigator) {
       navigator.vibrate(50);
     }
@@ -116,6 +193,11 @@ const App: React.FC = () => {
     channelRef.current?.postMessage({ type: 'JOIN', payload: newPlayer });
     if (isSplitView) {
       setPlayers(prev => [...prev, newPlayer]);
+    }
+    try {
+      firebaseService.addOrUpdatePlayer(sessionId, newPlayer);
+    } catch (e) {
+      // ignore if firebase not configured
     }
   };
 
