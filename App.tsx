@@ -1,7 +1,6 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { GameStatus, PlayerAnswer, AppRole, SyncMessage, Player } from './types';
-import { initRTDBSync, addPlayerToSession, recordResponse, setQuestionResult, setGameState, subscribeRTDB, closeRTDB } from './services/rtdbSync';
 import { COMPANY_CLIENT_QUIZ } from './data/staticQuiz';
 import { analyzeResults } from './services/geminiService';
 import ResponseChart from './components/ResponseChart';
@@ -27,117 +26,46 @@ const App: React.FC = () => {
   const [lastSelectedOption, setLastSelectedOption] = useState<number | null>(null);
   const [aiInsight, setAiInsight] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [customHost, setCustomHost] = useState<string>('');
   
-  const urlParams = new URLSearchParams(window.location.search);
-  const rtdbParam = urlParams.get('rtdb') || `quiz-${Date.now()}`;
-  const hostParam = urlParams.get('host');
-  
-  // Use custom host from URL param, or local origin, or custom host from state
-  const qrHost = customHost || hostParam || window.location.origin;
-  
-  // Generate QR URL for players to join
-  const qrUrl = `${qrHost}${window.location.pathname}?role=PLAYER&rtdb=${rtdbParam}${hostParam ? `&host=${hostParam}` : ''}`;
-  
-  const currentIndexRef = useRef(currentIndex);
-  
-  useEffect(() => {
-    currentIndexRef.current = currentIndex;
-  }, [currentIndex]);
+  const channelRef = useRef<BroadcastChannel | null>(null);
 
   useEffect(() => {
-    let unsubscribe: (() => void) | null = null;
-
-    const initSync = async () => {
-      try {
-        // Firebase RTDB is always the default sync method
-        const sessionId = rtdbParam;
-        const rtdbUrl = 'https://firestore-juancho-default-rtdb.firebaseio.com/';
-        const success = await initRTDBSync(rtdbUrl);
-        
-        if (success) {
-          console.log('Using Firebase RTDB sync with session:', sessionId);
-          unsubscribe = subscribeRTDB(sessionId, (sessionData: any) => {
-            // Sync Game State from RTDB
-            if (sessionData.GameState) {
-              const gs = sessionData.GameState;
-              if (gs.status !== undefined && gs.status !== status) {
-                setStatus(gs.status);
-              }
-              if (gs.currentIndex !== undefined && gs.currentIndex !== currentIndexRef.current) {
-                setCurrentIndex(gs.currentIndex);
-              }
-              if (gs.revealedQuestions && JSON.stringify(gs.revealedQuestions) !== JSON.stringify(revealedQuestions)) {
-                setRevealedQuestions(gs.revealedQuestions);
-              }
-            }
-            // Sync Players from RTDB
-            if (sessionData.Players && Array.isArray(sessionData.Players)) {
-              setPlayers(sessionData.Players);
-            }
-            // Sync Answers from RTDB Questions - use currentIndex from ref
-            if (sessionData.Questions && Array.isArray(sessionData.Questions)) {
-              const currentQ = sessionData.Questions.find((q: any) => q.questionNumber === currentIndexRef.current);
-              if (currentQ?.responses) {
-                const mappedAnswers = currentQ.responses.map((r: any) => ({
-                  playerId: r.playerId,
-                  questionId: quiz.questions[currentIndexRef.current]?.id || '',
-                  optionIndex: r.optionIndex,
-                  timestamp: Date.now()
-                }));
-                setAnswers(mappedAnswers);
-              } else {
-                setAnswers([]);
-              }
-            }
-          });
-        } else {
-          console.warn('RTDB init failed');
-        }
-      } catch (e) {
-        console.error('Sync init error:', e);
+    channelRef.current = new BroadcastChannel('quiz_sync');
+    
+    channelRef.current.onmessage = (event: MessageEvent<SyncMessage>) => {
+      const { type, payload } = event.data;
+      
+      if (type === 'VOTE') {
+        setAnswers(prev => [...prev, payload]);
+      } else if (type === 'JOIN' && role === 'HOST') {
+        setPlayers(prev => {
+          if (prev.find(p => p.id === payload.id)) return prev;
+          const newList = [...prev, payload];
+          channelRef.current?.postMessage({ type: 'PLAYER_LIST', payload: newList });
+          return newList;
+        });
+      } else if (type === 'PLAYER_LIST' && role === 'PLAYER') {
+        setPlayers(payload);
+      } else if (type === 'STATE_CHANGE') {
+        setStatus(payload.status);
+        setCurrentIndex(payload.currentIndex);
+        setRevealedQuestions(payload.revealedQuestions);
       }
     };
 
-    initSync();
-
-    return () => {
-      if (unsubscribe) unsubscribe();
-      closeRTDB();
-    };
-  }, [role, quiz.questions]);
-
-  const broadcastMessage = (msg: SyncMessage) => {
-    // Always use Firebase RTDB for syncing
-    if (msg.type === 'VOTE') {
-      recordResponse(rtdbParam, msg.payload, currentIndex);
-    } else if (msg.type === 'JOIN') {
-      addPlayerToSession(rtdbParam, msg.payload);
-    } else if (msg.type === 'STATE_CHANGE') {
-      // Always sync game state for all players
-      setGameState(rtdbParam, {
-        status: msg.payload.status,
-        currentIndex: msg.payload.currentIndex,
-        revealedQuestions: msg.payload.revealedQuestions
-      });
-      // Save result when question is revealed
-      if (revealedQuestions && revealedQuestions.includes(currentIndex)) {
-        const currentQuestion = quiz.questions[currentIndex];
-        setQuestionResult(rtdbParam, currentIndex, currentQuestion.correctIndex, currentQuestion.explanation);
-      }
-    }
-  };
+    return () => channelRef.current?.close();
+  }, [role]);
 
   useEffect(() => {
     if (role === 'PLAYER' || isSplitView) {
       setHasVoted(false);
       setLastSelectedOption(null);
     }
-  }, [currentIndex, role, isSplitView]);
+  }, [currentIndex, status === GameStatus.LOBBY, role, isSplitView]);
 
   useEffect(() => {
     if (role === 'HOST') {
-      broadcastMessage({
+      channelRef.current?.postMessage({
         type: 'STATE_CHANGE',
         payload: { status, currentIndex, revealedQuestions }
       });
@@ -170,7 +98,7 @@ const App: React.FC = () => {
       timestamp: Date.now()
     };
     
-    broadcastMessage({ type: 'VOTE', payload: answer });
+    channelRef.current?.postMessage({ type: 'VOTE', payload: answer });
     setHasVoted(true);
     setLastSelectedOption(index);
     
@@ -185,7 +113,7 @@ const App: React.FC = () => {
 
   const handlePlayerJoin = (name: string) => {
     const newPlayer = { id: 'p-' + Math.random().toString(36).substr(2, 5), name };
-    broadcastMessage({ type: 'JOIN', payload: newPlayer });
+    channelRef.current?.postMessage({ type: 'JOIN', payload: newPlayer });
     if (isSplitView) {
       setPlayers(prev => [...prev, newPlayer]);
     }
@@ -214,8 +142,7 @@ const App: React.FC = () => {
 
   const nextStep = () => {
     if (status === GameStatus.SHOWING_RESULTS) {
-      const safeRevealed = revealedQuestions || [];
-      if (!safeRevealed.includes(currentIndex)) {
+      if (!revealedQuestions.includes(currentIndex)) {
         setRevealedQuestions(prev => [...prev, currentIndex]);
       } else {
         if (currentIndex < quiz.questions.length - 1) {
@@ -242,8 +169,7 @@ const App: React.FC = () => {
 
   const renderHostUI = () => {
     const currentQuestion = quiz.questions[currentIndex];
-    const safeRevealedQuestions = revealedQuestions || [];
-    const isCorrectRevealed = status === GameStatus.SHOWING_RESULTS && safeRevealedQuestions.includes(currentIndex);
+    const isCorrectRevealed = status === GameStatus.SHOWING_RESULTS && revealedQuestions.includes(currentIndex);
 
     return (
       <div className={`min-h-screen bg-[#fcfdff] text-slate-900 font-sans ${isSplitView ? 'border-r border-slate-200' : ''}`}>
@@ -281,19 +207,9 @@ const App: React.FC = () => {
                 
                 <div className="flex justify-center items-center gap-16 mt-16">
                    <div className="bg-white p-10 rounded-[48px] shadow-3xl border border-slate-50 flex flex-col items-center">
-                      <div className="bg-white rounded-3xl mb-8 flex items-center justify-center p-4 shadow-md">
-                        <img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrUrl)}`} alt="QR Code" className="w-48 h-48" />
-                      </div>
-                      <p className="text-[10px] font-black text-slate-300 uppercase tracking-[0.4em] mb-2">Escanea para Unirse</p>
-                      <p className="text-sm font-black text-slate-600 tracking-widest max-w-xs truncate mb-6">{rtdbParam}</p>
-                      <input 
-                        type="text" 
-                        placeholder="Host personalizado (ej: https://abc123.ngrok.io)" 
-                        value={customHost}
-                        onChange={(e) => setCustomHost(e.target.value)}
-                        className="w-full text-xs px-4 py-2 border border-slate-200 rounded-lg focus:border-[#c90c14] focus:outline-none transition-all"
-                      />
-                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-2">Deja vacío para local</p>
+                      <div className="w-48 h-48 bg-black rounded-3xl mb-8 flex items-center justify-center text-white font-black text-xl">QR</div>
+                      <p className="text-[10px] font-black text-slate-300 uppercase tracking-[0.4em] mb-2">Acceso Directo</p>
+                      <p className="text-5xl font-black text-slate-900 tracking-widest">882-911</p>
                    </div>
                    
                    <div className="flex flex-col gap-4">
@@ -329,7 +245,7 @@ const App: React.FC = () => {
 
           {(status === GameStatus.QUESTION_ACTIVE || status === GameStatus.SHOWING_RESULTS) && currentQuestion && (
             <div className="space-y-10">
-              <TreeChart quiz={quiz} revealedQuestions={safeRevealedQuestions} />
+              <TreeChart quiz={quiz} revealedQuestions={revealedQuestions} />
 
               <div className={`grid grid-cols-1 ${isSplitView ? 'lg:grid-cols-1' : 'lg:grid-cols-12'} gap-10`}>
                 <div className={`${isSplitView ? 'lg:col-span-1' : 'lg:col-span-8'} bg-white rounded-[64px] shadow-3xl p-16 lg:p-20 border border-slate-50 relative overflow-hidden`}>
@@ -418,7 +334,7 @@ const App: React.FC = () => {
                         )}
 
                         <button onClick={nextStep} className="w-full py-10 bg-[#c90c14] text-white rounded-[40px] font-black text-2xl hover:opacity-90 transition-all flex items-center justify-center gap-6 group uppercase tracking-widest">
-                          {!safeRevealedQuestions.includes(currentIndex) ? "Revelar" : "Continuar"}
+                          {!revealedQuestions.includes(currentIndex) ? "Revelar" : "Continuar"}
                           <svg className="w-8 h-8 group-hover:translate-x-2 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M17 8l4 4m0 0l-4 4m4-4H3" />
                           </svg>

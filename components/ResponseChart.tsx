@@ -39,12 +39,15 @@ const ResponseChart: React.FC<ResponseChartProps> = ({ question, answers, showCo
             labelStyle={{ display: 'none' }}
           />
           <Bar dataKey="count" radius={[8, 8, 0, 0]} barSize={40}>
-            {data.map((entry, index) => (
-              <Cell 
-                key={`cell-${index}`} 
-                fill={showCorrect ? (entry.isCorrect ? '#10b981' : '#cbd5e1') : (index === 0 ? '#c90c14' : '#000')} 
-              />
-            ))}
+            {data.map((entry, index) => {
+              const colors = ['#c90c14', '#1e293b', '#334155', '#475569'];
+              return (
+                <Cell 
+                  key={`cell-${index}`} 
+                  fill={showCorrect ? (entry.isCorrect ? '#10b981' : '#cbd5e1') : colors[index % colors.length]} 
+                />
+              );
+            })}
           </Bar>
         </BarChart>
       </ResponsiveContainer>
